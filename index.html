@@ -242,6 +242,16 @@
     user-select: none;
   }
   .grid.mode-shade .cell.active polygon { cursor: crosshair; }
+  .grid.mode-number .cell polygon { cursor: pointer; }
+  .cell-number {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    fill: var(--ink-soft);
+    text-anchor: start;
+    dominant-baseline: hanging;
+    pointer-events: none;
+    user-select: none;
+  }
 
   .cell-input {
     position: absolute;
@@ -295,6 +305,7 @@
           <button data-mode="shade">Shade</button>
           <button data-mode="text" class="active">Write</button>
           <button data-mode="find">Find</button>
+          <button data-mode="number">Number</button>
         </div>
         <p class="hint" id="modeHint"></p>
       </section>
@@ -320,6 +331,17 @@
           <span class="hint" id="symCenterLabel" style="flex:1;"></span>
         </div>
         <p class="hint" id="symHint">Shading a cell also shades its symmetric partner(s).</p>
+      </section>
+
+      <section class="panel">
+        <h2>Numbering</h2>
+        <select class="select-field" id="numberingSelect">
+          <option value="down">Down-dominant</option>
+          <option value="right">Right-dominant</option>
+          <option value="custom">Custom</option>
+        </select>
+        <button class="btn small" id="numberingVisibleBtn" style="width:100%;">Show numbers</button>
+        <p class="hint" id="numberingHint"></p>
       </section>
 
       <section class="panel">
@@ -404,14 +426,16 @@
     shape: "Click a cell to add or remove it from the puzzle's outline. Removed cells stay visible as dashed ghosts so you can bring them back.",
     shade: "Click or drag across cells to paint them with the selected ink. Choose Blank to erase back to plain paper.",
     text: "Click a cell, then type. Enter moves to the next cell, arrow keys step to a neighbour, Esc deselects.",
-    find: "Drag along a straight line of cells (any of the 3 hex directions) to search the dictionary."
+    find: "Drag along a straight line of cells (any of the 3 hex directions) to search the dictionary.",
+    number: "Custom numbering: click a cell to toggle whether a word starts there. Down/Right-dominant update automatically as you edit the grid."
   };
 
   var state = {
     radius: 5,
     hexR: 30,
     cells: {},
-    symmetry: { type: "none", center: { q0: 0, r0: 0 } }
+    symmetry: { type: "none", center: { q0: 0, r0: 0 } },
+    numbering: { type: "down", visible: false, customStarts: new Set() }
   };
 
   var mode = "shape";
@@ -425,12 +449,12 @@
   var findLineKeys = null;
   var isFindDragging = false;
 
-  var PHRASE_SUGGEST_LIMIT = 100000;
   var dictReady = false;
   var wordRank = {};
   var wordsByLength = new Map();
   var wordsExtraByLength = new Map();
   var bigramsByLen = new Map();
+  var goodPhraseCount = 1;
   var phrases4ByLen = new Map();
   var bigramAdjacency = new Map();
 
@@ -448,6 +472,9 @@
   var radiusInput = document.getElementById("radiusInput");
   var modeHint = document.getElementById("modeHint");
   var zoomLabel = document.getElementById("zoomLabel");
+  var numberingSelect = document.getElementById("numberingSelect");
+  var numberingVisibleBtn = document.getElementById("numberingVisibleBtn");
+  var numberingHint = document.getElementById("numberingHint");
   var findHint = document.getElementById("findHint");
   var patternPreview = document.getElementById("patternPreview");
   var finderOptionsPanel = document.getElementById("finderOptionsPanel");
@@ -671,6 +698,8 @@
     svg.dataset.offX = offX;
     svg.dataset.offY = offY;
 
+    var numberingMap = state.numbering.visible ? computeNumbering() : null;
+
     keys.forEach(function (k) {
       var cell = state.cells[k];
       var g = geo[k];
@@ -692,6 +721,17 @@
       text.style.fill = cell.color === "#23231f" ? "#f2efe7" : "";
       text.textContent = cell.text || "";
       group.appendChild(text);
+
+      if (numberingMap && numberingMap.has(k)) {
+        var num = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        num.setAttribute("class", "cell-number");
+        num.setAttribute("x", (g.cx + offX - hexR * 0.55).toFixed(1));
+        num.setAttribute("y", (g.cy + offY - hexR * 0.62).toFixed(1));
+        num.setAttribute("font-size", (hexR * 0.28).toFixed(1));
+        num.style.fill = cell.color === "#23231f" ? "#f2efe7" : "";
+        num.textContent = numberingMap.get(k);
+        group.appendChild(num);
+      }
 
       svg.appendChild(group);
     });
@@ -800,17 +840,24 @@
     } else if (mode === "shade") {
       if (!cell.active) return;
       cell.color = paintValue;
-      refreshCellVisual(k);
       var parts = k.split(",").map(Number);
       symmetryOrbit(parts[0], parts[1]).forEach(function (p) {
         var nk = key(p[0], p[1]);
         if (nk === k) return;
         var ncell = state.cells[nk];
-        if (ncell && ncell.active) {
-          ncell.color = paintValue;
-          refreshCellVisual(nk);
-        }
+        if (ncell && ncell.active) ncell.color = paintValue;
       });
+      // Ink-block colour changes entry boundaries, so numbering (if shown) needs
+      // a full recompute — the lightweight per-cell path can't do that correctly.
+      if (state.numbering.visible) {
+        render();
+      } else {
+        refreshCellVisual(k);
+        symmetryOrbit(parts[0], parts[1]).forEach(function (p) {
+          var nk = key(p[0], p[1]);
+          if (nk !== k && state.cells[nk] && state.cells[nk].active) refreshCellVisual(nk);
+        });
+      }
     }
   }
 
@@ -838,16 +885,18 @@
         if (!arr) { arr = []; wordsExtraByLength.set(w.length, arr); }
         arr.push(w);
       });
-      data.bigrams.forEach(function (entry, i) {
-        var w1 = entry[0], w2 = entry[1], count = entry[2];
-        addAdjacency(w1, w2, count);
-        addAdjacency(w2, w1, count);
-        if (i >= PHRASE_SUGGEST_LIMIT) return; // still counted for relatedness above, just not offered as a fill suggestion
+      data.bigrams.forEach(function (entry) {
+        addAdjacency(entry[0], entry[1], entry[2]);
+        addAdjacency(entry[1], entry[0], entry[2]);
+      });
+      (data.goodPhrases || []).forEach(function (entry, i) {
+        var w1 = entry[0], w2 = entry[1];
         var letters = w1 + w2;
         var arr = bigramsByLen.get(letters.length);
         if (!arr) { arr = []; bigramsByLen.set(letters.length, arr); }
         arr.push({ display: w1 + " " + w2, letters: letters, rank: i + 1 });
       });
+      goodPhraseCount = (data.goodPhrases || []).length || 1;
       (data.phrases4 || []).forEach(function (p) {
         var letters = p.replace(/[^A-Z]/g, "");
         var arr = phrases4ByLen.get(letters.length);
@@ -989,6 +1038,49 @@
     return Array.from(new Set(found));
   }
 
+  function isBlocked(cell) {
+    return !cell || !cell.active || cell.color === "#23231f";
+  }
+
+  // The canonical "forward" direction per axis for each numbering scheme — a
+  // cell numbers once if it starts a real (length >= 2) entry in any of the 3.
+  var NUMBERING_DIRS = {
+    down: [[1, 0], [0, 1], [-1, 1]],   // right, down-right, down-left
+    right: [[1, 0], [0, 1], [1, -1]]   // right, down-right, up-right
+  };
+
+  function orderCellKeys(keys) {
+    return keys.slice().sort(function (a, b) {
+      var pa = a.split(",").map(Number), pb = b.split(",").map(Number);
+      return pa[1] !== pb[1] ? pa[1] - pb[1] : pa[0] - pb[0];
+    });
+  }
+
+  function computeNumbering() {
+    var starts;
+    if (state.numbering.type === "custom") {
+      starts = Array.from(state.numbering.customStarts).filter(function (k) {
+        return !isBlocked(state.cells[k]);
+      });
+    } else {
+      var dirs = NUMBERING_DIRS[state.numbering.type] || NUMBERING_DIRS.down;
+      starts = [];
+      Object.keys(state.cells).forEach(function (k) {
+        if (isBlocked(state.cells[k])) return;
+        var parts = k.split(",").map(Number);
+        for (var i = 0; i < dirs.length; i++) {
+          var d = dirs[i];
+          var back = isBlocked(state.cells[key(parts[0] - d[0], parts[1] - d[1])]);
+          var fwd = !isBlocked(state.cells[key(parts[0] + d[0], parts[1] + d[1])]);
+          if (back && fwd) { starts.push(k); break; }
+        }
+      });
+    }
+    var map = new Map();
+    orderCellKeys(starts).forEach(function (k, i) { map.set(k, i + 1); });
+    return map;
+  }
+
   var CO_WEIGHT = 0.15;
   var SEM_WEIGHT = 1;
   var SIM_THRESHOLD = 0.3;
@@ -1078,7 +1170,7 @@
       candidates.sort(function (a, b) { return a.display.localeCompare(b.display); });
     } else if (sortMode === "common") {
       candidates.forEach(function (item) {
-        item._pct = item.rank ? item.rank / (item.isBigram ? 100000 : 50000) : 2;
+        item._pct = item.rank ? item.rank / (item.isBigram ? goodPhraseCount : 50000) : 2;
       });
       candidates.sort(function (a, b) { return a._pct !== b._pct ? a._pct - b._pct : a.display.localeCompare(b.display); });
     } else if (sortMode === "related") {
@@ -1149,6 +1241,15 @@
       findAnchor = k;
       isFindDragging = true;
       setFindLine([k]);
+      return;
+    }
+    if (mode === "number") {
+      if (state.numbering.type === "custom" && !isBlocked(state.cells[k])) {
+        e.preventDefault();
+        var set = state.numbering.customStarts;
+        if (set.has(k)) set.delete(k); else set.add(k);
+        if (state.numbering.visible) render();
+      }
       return;
     }
     if (mode === "shape") {
@@ -1355,6 +1456,31 @@
     updateFindUI();
   });
 
+  function updateNumberingUI() {
+    numberingSelect.value = state.numbering.type;
+    numberingVisibleBtn.textContent = state.numbering.visible ? "Hide numbers" : "Show numbers";
+    numberingVisibleBtn.classList.toggle("primary", state.numbering.visible);
+    numberingHint.textContent = state.numbering.type === "custom"
+      ? "Switch to Number mode and click cells to toggle where a word starts."
+      : "Numbers follow the grid automatically as you edit its shape and shading.";
+  }
+
+  numberingSelect.addEventListener("change", function (e) {
+    var newType = e.target.value;
+    if (newType === "custom" && state.numbering.type !== "custom" && state.numbering.customStarts.size === 0) {
+      state.numbering.customStarts = new Set(computeNumbering().keys());
+    }
+    state.numbering.type = newType;
+    updateNumberingUI();
+    if (state.numbering.visible) render();
+  });
+
+  numberingVisibleBtn.addEventListener("click", function () {
+    state.numbering.visible = !state.numbering.visible;
+    updateNumberingUI();
+    render();
+  });
+
   document.getElementById("setCenterBtn").addEventListener("click", function () {
     pickingCenter = !pickingCenter;
     updateSvgClass();
@@ -1371,7 +1497,7 @@
       var tag = document.activeElement && document.activeElement.tagName;
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || tag === "BUTTON") return;
       e.preventDefault();
-      var order = ["shape", "shade", "text", "find"];
+      var order = ["shape", "shade", "text", "find", "number"];
       var idx = order.indexOf(mode);
       var next = e.shiftKey ? (idx - 1 + order.length) % order.length : (idx + 1) % order.length;
       setMode(order[next]);
@@ -1447,7 +1573,8 @@
   document.getElementById("zoomOut").addEventListener("click", function () { setZoom(zoomIndex() - 1); });
 
   document.getElementById("exportJsonBtn").addEventListener("click", async function () {
-    var payload = JSON.stringify({ radius: state.radius, cells: state.cells, symmetry: state.symmetry }, null, 0);
+    var numberingOut = { type: state.numbering.type, visible: state.numbering.visible, customStarts: Array.from(state.numbering.customStarts) };
+    var payload = JSON.stringify({ radius: state.radius, cells: state.cells, symmetry: state.symmetry, numbering: numberingOut }, null, 0);
     var ok = await saveFile("combwright-grid.json", payload, "application/json");
     if (!ok) window.alert("Couldn't save the file here. Copy this instead:\n\n" + payload.slice(0, 4000));
   });
@@ -1466,11 +1593,14 @@
         state.radius = data.radius;
         state.cells = data.cells;
         state.symmetry = data.symmetry || { type: "none", center: { q0: 0, r0: 0 } };
+        var numberingIn = data.numbering || { type: "down", visible: false, customStarts: [] };
+        state.numbering = { type: numberingIn.type, visible: numberingIn.visible, customStarts: new Set(numberingIn.customStarts || []) };
         radiusInput.value = data.radius;
         document.getElementById("symmetrySelect").value = state.symmetry.type;
         pickingCenter = false;
         updateSvgClass();
         updateSymUI();
+        updateNumberingUI();
         deselectCell();
         clearFindLine();
         updateFindUI();
@@ -1513,6 +1643,7 @@
     ctx.scale(scale, scale);
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, width, height);
+    var numberingMap = state.numbering.visible ? computeNumbering() : null;
     keys.forEach(function (k) {
       var cell = state.cells[k];
       var g = geo[k];
@@ -1534,6 +1665,13 @@
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(cell.text, g.cx + offX, g.cy + offY + fs * 0.03);
+      }
+      if (numberingMap && numberingMap.has(k)) {
+        ctx.font = "700 " + (hexR * 0.28).toFixed(1) + "px 'IBM Plex Mono', monospace";
+        ctx.fillStyle = cell.color === "#23231f" ? "#f2efe7" : "#5c655b";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "top";
+        ctx.fillText(numberingMap.get(k), g.cx + offX - hexR * 0.55, g.cy + offY - hexR * 0.62);
       }
     });
     ctx.beginPath();
@@ -1566,6 +1704,7 @@
   applyRadius(state.radius, false);
   setMode("text");
   updateSymUI();
+  updateNumberingUI();
   setZoom(zoomIndex());
   loadDictionary();
   loadVectors();
