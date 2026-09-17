@@ -144,19 +144,23 @@
     gap: 2px;
   }
   .result-row {
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
     padding: 6px 8px;
     border-radius: 6px;
     font-size: 0.85rem;
   }
   .result-row:nth-child(odd) { background: var(--surface-2); }
-  .result-row .rank { color: var(--ink-soft); font-family: var(--font-mono); font-size: 0.75rem; }
+  .result-main { display: flex; justify-content: space-between; gap: 8px; }
+  .result-main .rank { color: var(--ink-soft); font-family: var(--font-mono); font-size: 0.75rem; }
+  .result-related {
+    font-size: 0.74rem;
+    font-style: italic;
+    color: var(--ink-soft);
+    padding-left: 14px;
+    margin-top: 1px;
+  }
   .results-note { font-size: 0.75rem; color: var(--ink-soft); padding-top: 4px; }
 
-  .cell.find-line polygon { stroke: var(--accent); stroke-width: 3px; }
-  .cell.find-line { opacity: 1; }
+  .cell.find-line polygon { filter: brightness(0.88) saturate(1.6); }
 
   .num-field {
     width: 48px;
@@ -419,6 +423,7 @@
   var findLineKeys = null;
   var isFindDragging = false;
 
+  var PHRASE_SUGGEST_LIMIT = 100000;
   var dictReady = false;
   var wordRank = {};
   var wordsByLength = new Map();
@@ -818,12 +823,13 @@
       });
       data.bigrams.forEach(function (entry, i) {
         var w1 = entry[0], w2 = entry[1], count = entry[2];
+        addAdjacency(w1, w2, count);
+        addAdjacency(w2, w1, count);
+        if (i >= PHRASE_SUGGEST_LIMIT) return; // still counted for relatedness above, just not offered as a fill suggestion
         var letters = w1 + w2;
         var arr = bigramsByLen.get(letters.length);
         if (!arr) { arr = []; bigramsByLen.set(letters.length, arr); }
         arr.push({ display: w1 + " " + w2, letters: letters, rank: i + 1 });
-        addAdjacency(w1, w2, count);
-        addAdjacency(w2, w1, count);
       });
       (data.phrases4 || []).forEach(function (p) {
         var letters = p.replace(/[^A-Z]/g, "");
@@ -929,15 +935,23 @@
 
   function relatednessScore(display, gridWords) {
     var total = 0;
+    var contributions = new Map();
     display.split(" ").forEach(function (tok) {
       var partners = bigramAdjacency.get(tok);
       if (!partners) return;
       gridWords.forEach(function (gw) {
         if (gw === tok) return;
-        total += partners.get(gw) || 0;
+        var c = partners.get(gw) || 0;
+        if (c) {
+          total += c;
+          contributions.set(gw, (contributions.get(gw) || 0) + c);
+        }
       });
     });
-    return total;
+    var related = Array.from(contributions.entries())
+      .sort(function (a, b) { return b[1] - a[1]; })
+      .map(function (e) { return e[0]; });
+    return { score: total, related: related };
   }
 
   function updateFindUI() {
@@ -988,7 +1002,11 @@
       candidates.sort(function (a, b) { return a._pct !== b._pct ? a._pct - b._pct : a.display.localeCompare(b.display); });
     } else if (sortMode === "related") {
       var gridWords = findGridWords();
-      candidates.forEach(function (item) { item._score = relatednessScore(item.display, gridWords); });
+      candidates.forEach(function (item) {
+        var r = relatednessScore(item.display, gridWords);
+        item._score = r.score;
+        item._related = r.related;
+      });
       candidates.sort(function (a, b) { return b._score !== a._score ? b._score - a._score : a.display.localeCompare(b.display); });
     }
     renderResults(candidates, sortMode);
@@ -1001,15 +1019,24 @@
     list.slice(0, 500).forEach(function (item) {
       var row = document.createElement("div");
       row.className = "result-row";
+      var main = document.createElement("div");
+      main.className = "result-main";
       var name = document.createElement("span");
       name.textContent = item.display;
-      row.appendChild(name);
+      main.appendChild(name);
       if (sortMode === "common" && item.rank) {
         var r = document.createElement("span"); r.className = "rank"; r.textContent = "#" + item.rank;
-        row.appendChild(r);
+        main.appendChild(r);
       } else if (sortMode === "related" && item._score) {
         var r2 = document.createElement("span"); r2.className = "rank"; r2.textContent = item._score;
-        row.appendChild(r2);
+        main.appendChild(r2);
+      }
+      row.appendChild(main);
+      if (sortMode === "related" && item._related && item._related.length) {
+        var sub = document.createElement("div");
+        sub.className = "result-related";
+        sub.textContent = item._related.slice(0, 4).join(", ").toLowerCase();
+        row.appendChild(sub);
       }
       resultsList.appendChild(row);
     });
