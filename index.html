@@ -291,9 +291,9 @@
       <section class="panel">
         <h2>Mode</h2>
         <div class="segmented" id="modeSeg">
-          <button data-mode="shape" class="active">Shape</button>
+          <button data-mode="shape">Shape</button>
           <button data-mode="shade">Shade</button>
-          <button data-mode="text">Write</button>
+          <button data-mode="text" class="active">Write</button>
           <button data-mode="find">Find</button>
         </div>
         <p class="hint" id="modeHint"></p>
@@ -352,7 +352,7 @@
 
     <main class="canvas-wrap" id="canvasWrap">
       <div class="canvas-inner" id="canvasInner">
-        <svg class="grid mode-shape" id="gridSvg" xmlns="http://www.w3.org/2000/svg"></svg>
+        <svg class="grid mode-text" id="gridSvg" xmlns="http://www.w3.org/2000/svg"></svg>
         <input class="cell-input" id="cellInput" maxlength="24" autocomplete="off" autocapitalize="characters" spellcheck="false">
       </div>
     </main>
@@ -374,6 +374,8 @@
           <option value="common">Sort: Most common</option>
           <option value="related">Sort: Related to grid</option>
         </select>
+        <button class="btn small" id="stretchyBtn" style="width:100%;">Stretchy mode</button>
+        <p class="hint" id="stretchyHint">Off — common words only.</p>
       </section>
 
       <section class="panel" id="resultsPanel" hidden>
@@ -427,9 +429,16 @@
   var dictReady = false;
   var wordRank = {};
   var wordsByLength = new Map();
+  var wordsExtraByLength = new Map();
   var bigramsByLen = new Map();
   var phrases4ByLen = new Map();
   var bigramAdjacency = new Map();
+
+  var vectorsReady = false;
+  var vectorsBytes = null;
+  var vectorsDim = 50;
+  var vectorsStride = 54;
+  var vectorsIndex = new Map();
 
   var svg = document.getElementById("gridSvg");
   var canvasWrap = document.getElementById("canvasWrap");
@@ -444,6 +453,9 @@
   var finderOptionsPanel = document.getElementById("finderOptionsPanel");
   var includePhrasesCheck = document.getElementById("includePhrasesCheck");
   var sortSelect = document.getElementById("sortSelect");
+  var stretchyBtn = document.getElementById("stretchyBtn");
+  var stretchyHint = document.getElementById("stretchyHint");
+  var stretchyMode = false;
   var resultsPanel = document.getElementById("resultsPanel");
   var resultsCount = document.getElementById("resultsCount");
   var resultsList = document.getElementById("resultsList");
@@ -821,6 +833,11 @@
         if (!arr) { arr = []; wordsByLength.set(w.length, arr); }
         arr.push(w);
       });
+      (data.wordsExtra || []).forEach(function (w) {
+        var arr = wordsExtraByLength.get(w.length);
+        if (!arr) { arr = []; wordsExtraByLength.set(w.length, arr); }
+        arr.push(w);
+      });
       data.bigrams.forEach(function (entry, i) {
         var w1 = entry[0], w2 = entry[1], count = entry[2];
         addAdjacency(w1, w2, count);
@@ -842,6 +859,45 @@
       dictReady = false;
     }
     updateFindUI();
+  }
+
+  // Real word embeddings (100k-word GloVe subset, int8-quantized) for genuine
+  // semantic relatedness — catches pairs like ALASKA/HAWAII or ALPACA/LLAMA that
+  // never sit next to each other in text, so the bigram co-occurrence data alone
+  // can never find them no matter how it's tuned.
+  async function loadVectors() {
+    try {
+      var res = await fetch("vectors.json");
+      var data = await res.json();
+      vectorsDim = data.dim;
+      vectorsStride = vectorsDim + 4;
+      var binStr = atob(data.vectors);
+      var bytes = new Uint8Array(binStr.length);
+      for (var i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+      vectorsBytes = bytes;
+      data.words.forEach(function (w, i) { vectorsIndex.set(w, i); });
+      vectorsReady = true;
+    } catch (err) {
+      vectorsReady = false;
+    }
+  }
+
+  function getVector(word) {
+    var i = vectorsIndex.get(word);
+    if (i === undefined) return null;
+    var base = i * vectorsStride;
+    var view = new DataView(vectorsBytes.buffer, vectorsBytes.byteOffset + base, vectorsStride);
+    var scale = view.getFloat32(vectorsDim, true);
+    var arr = new Float32Array(vectorsDim);
+    for (var d = 0; d < vectorsDim; d++) arr[d] = view.getInt8(d) * scale;
+    return arr;
+  }
+
+  function cosineSim(a, b) {
+    var dot = 0, na = 0, nb = 0;
+    for (var i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+    if (na === 0 || nb === 0) return 0;
+    return dot / (Math.sqrt(na) * Math.sqrt(nb));
   }
 
   function addAdjacency(a, b, count) {
@@ -933,20 +989,40 @@
     return Array.from(new Set(found));
   }
 
-  function relatednessScore(display, gridWords) {
+  var CO_WEIGHT = 0.15;
+  var SEM_WEIGHT = 1;
+  var SIM_THRESHOLD = 0.3;
+
+  // Combines two different, complementary signals: bigram co-occurrence (catches
+  // fixed collocations like "peanut butter") and cosine similarity over real word
+  // embeddings (catches topical/categorical relations like ALASKA/HAWAII or
+  // ALPACA/LLAMA that never sit next to each other in text at all).
+  function relatednessScore(display, gridWords, gridVectors) {
     var total = 0;
     var contributions = new Map();
+    var addContribution = function (gw, amount) {
+      total += amount;
+      contributions.set(gw, (contributions.get(gw) || 0) + amount);
+    };
     display.split(" ").forEach(function (tok) {
       var partners = bigramAdjacency.get(tok);
-      if (!partners) return;
-      gridWords.forEach(function (gw) {
-        if (gw === tok) return;
-        var c = partners.get(gw) || 0;
-        if (c) {
-          total += c;
-          contributions.set(gw, (contributions.get(gw) || 0) + c);
+      if (partners) {
+        gridWords.forEach(function (gw) {
+          if (gw === tok) return;
+          var c = partners.get(gw) || 0;
+          if (c) addContribution(gw, Math.log(1 + c) * CO_WEIGHT);
+        });
+      }
+      if (vectorsReady) {
+        var v1 = getVector(tok);
+        if (v1) {
+          gridVectors.forEach(function (g) {
+            if (g.word === tok) return;
+            var s = cosineSim(v1, g.vec);
+            if (s >= SIM_THRESHOLD) addContribution(g.word, s * SEM_WEIGHT);
+          });
         }
-      });
+      }
     });
     var related = Array.from(contributions.entries())
       .sort(function (a, b) { return b[1] - a[1]; })
@@ -984,6 +1060,11 @@
     (wordsByLength.get(pat.length) || []).forEach(function (w) {
       if (pat.regex.test(w)) candidates.push({ display: w, rank: wordRank[w] || null });
     });
+    if (stretchyMode) {
+      (wordsExtraByLength.get(pat.length) || []).forEach(function (w) {
+        if (pat.regex.test(w)) candidates.push({ display: w, rank: wordRank[w] || null });
+      });
+    }
     if (includePhrasesCheck.checked) {
       (bigramsByLen.get(pat.length) || []).forEach(function (p) {
         if (pat.regex.test(p.letters)) candidates.push({ display: p.display, rank: p.rank, isBigram: true });
@@ -1002,8 +1083,9 @@
       candidates.sort(function (a, b) { return a._pct !== b._pct ? a._pct - b._pct : a.display.localeCompare(b.display); });
     } else if (sortMode === "related") {
       var gridWords = findGridWords();
+      var gridVectors = gridWords.map(function (w) { return { word: w, vec: getVector(w) }; }).filter(function (g) { return g.vec; });
       candidates.forEach(function (item) {
-        var r = relatednessScore(item.display, gridWords);
+        var r = relatednessScore(item.display, gridWords, gridVectors);
         item._score = r.score;
         item._related = r.related;
       });
@@ -1264,6 +1346,15 @@
   includePhrasesCheck.addEventListener("change", updateFindUI);
   sortSelect.addEventListener("change", updateFindUI);
 
+  stretchyBtn.addEventListener("click", function () {
+    stretchyMode = !stretchyMode;
+    stretchyBtn.classList.toggle("primary", stretchyMode);
+    stretchyHint.textContent = stretchyMode
+      ? "On — also including much less common words."
+      : "Off — common words only.";
+    updateFindUI();
+  });
+
   document.getElementById("setCenterBtn").addEventListener("click", function () {
     pickingCenter = !pickingCenter;
     updateSvgClass();
@@ -1275,6 +1366,15 @@
       pickingCenter = false;
       updateSvgClass();
       updateSymUI();
+    }
+    if (e.key === "Tab") {
+      var tag = document.activeElement && document.activeElement.tagName;
+      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || tag === "BUTTON") return;
+      e.preventDefault();
+      var order = ["shape", "shade", "text", "find"];
+      var idx = order.indexOf(mode);
+      var next = e.shiftKey ? (idx - 1 + order.length) % order.length : (idx + 1) % order.length;
+      setMode(order[next]);
     }
   });
 
@@ -1464,9 +1564,10 @@
 
   buildSwatches();
   applyRadius(state.radius, false);
-  setMode("shape");
+  setMode("text");
   updateSymUI();
   setZoom(zoomIndex());
   loadDictionary();
+  loadVectors();
 })();
 </script>
