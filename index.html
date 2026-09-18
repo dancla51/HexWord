@@ -1,4 +1,4 @@
-<title>Combwright</title>
+<title>HexWord</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;600;700&display=swap">
 <style>
   :root {
@@ -243,7 +243,7 @@
   }
   .grid.mode-shade .cell.active polygon { cursor: crosshair; }
   .grid.mode-number .cell polygon { cursor: pointer; }
-  .cell-number {
+  .cell text.cell-number {
     font-family: var(--font-mono);
     font-weight: 700;
     fill: var(--ink-soft);
@@ -252,6 +252,7 @@
     pointer-events: none;
     user-select: none;
   }
+  .grid.hide-letters .cell-letter { visibility: hidden; }
 
   .cell-input {
     position: absolute;
@@ -280,7 +281,7 @@
 
 <div class="app">
   <div class="topbar">
-    <h1>Combwright</h1>
+    <h1>HexWord</h1>
     <div class="stats" id="statsLine">—</div>
   </div>
 
@@ -315,7 +316,7 @@
         <div class="swatches" id="swatches"></div>
       </section>
 
-      <section class="panel">
+      <section class="panel" id="symmetryPanel">
         <h2>Shading symmetry</h2>
         <select class="select-field" id="symmetrySelect">
           <option value="none">No symmetry</option>
@@ -333,7 +334,7 @@
         <p class="hint" id="symHint">Shading a cell also shades its symmetric partner(s).</p>
       </section>
 
-      <section class="panel">
+      <section class="panel" id="numberingPanel">
         <h2>Numbering</h2>
         <select class="select-field" id="numberingSelect">
           <option value="down">Down-dominant</option>
@@ -351,6 +352,11 @@
           <span class="hint" id="zoomLabel" style="flex:1; text-align:center;">100%</span>
           <button class="btn icon" id="zoomIn" aria-label="Zoom in">+</button>
         </div>
+      </section>
+
+      <section class="panel">
+        <h2>Letters</h2>
+        <button class="btn small" id="lettersVisibleBtn" style="width:100%;">Hide letters</button>
       </section>
 
       <section class="panel">
@@ -426,7 +432,7 @@
     shape: "Click a cell to add or remove it from the puzzle's outline. Removed cells stay visible as dashed ghosts so you can bring them back.",
     shade: "Click or drag across cells to paint them with the selected ink. Choose Blank to erase back to plain paper.",
     text: "Click a cell, then type. Enter moves to the next cell, arrow keys step to a neighbour, Esc deselects.",
-    find: "Drag along a straight line of cells (any of the 3 hex directions) to search the dictionary.",
+    find: "Drag through a chain of neighbouring cells — straight or curved — to search the dictionary. Drag back over the previous cell to undo a step.",
     number: "Custom numbering: click a cell to toggle whether a word starts there. Down/Right-dominant update automatically as you edit the grid."
   };
 
@@ -435,7 +441,8 @@
     hexR: 30,
     cells: {},
     symmetry: { type: "none", center: { q0: 0, r0: 0 } },
-    numbering: { type: "down", visible: false, customStarts: new Set() }
+    numbering: { type: "down", visible: false, customStarts: new Set() },
+    lettersVisible: true
   };
 
   var mode = "shape";
@@ -445,7 +452,6 @@
   var paintValue = null;
   var touchedThisStroke = null;
   var pickingCenter = false;
-  var findAnchor = null;
   var findLineKeys = null;
   var isFindDragging = false;
 
@@ -475,6 +481,7 @@
   var numberingSelect = document.getElementById("numberingSelect");
   var numberingVisibleBtn = document.getElementById("numberingVisibleBtn");
   var numberingHint = document.getElementById("numberingHint");
+  var lettersVisibleBtn = document.getElementById("lettersVisibleBtn");
   var findHint = document.getElementById("findHint");
   var patternPreview = document.getElementById("patternPreview");
   var finderOptionsPanel = document.getElementById("finderOptionsPanel");
@@ -714,6 +721,7 @@
       group.appendChild(poly);
 
       var text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      text.setAttribute("class", "cell-letter");
       text.setAttribute("x", g.cx + offX);
       text.setAttribute("y", g.cy + offY);
       var fs = cellFontSize(hexR, (cell.text || "").length);
@@ -725,9 +733,9 @@
       if (numberingMap && numberingMap.has(k)) {
         var num = document.createElementNS("http://www.w3.org/2000/svg", "text");
         num.setAttribute("class", "cell-number");
-        num.setAttribute("x", (g.cx + offX - hexR * 0.55).toFixed(1));
-        num.setAttribute("y", (g.cy + offY - hexR * 0.62).toFixed(1));
-        num.setAttribute("font-size", (hexR * 0.28).toFixed(1));
+        num.setAttribute("x", (g.cx + offX - hexR * 0.32).toFixed(1));
+        num.setAttribute("y", (g.cy + offY - hexR * 0.38).toFixed(1));
+        num.setAttribute("font-size", (hexR * 0.38).toFixed(1));
         num.style.fill = cell.color === "#23231f" ? "#f2efe7" : "";
         num.textContent = numberingMap.get(k);
         group.appendChild(num);
@@ -805,7 +813,7 @@
     if (!g) return;
     g.setAttribute("class", "cell" + (cell.active ? " active" : " inactive") + (k === selectedKey ? " selected" : ""));
     var poly = g.querySelector("polygon");
-    var text = g.querySelector("text");
+    var text = g.querySelector(".cell-letter");
     poly.style.fill = (cell.active && cell.color) ? cell.color : "";
     var fs = cellFontSize(state.hexR, (cell.text || "").length);
     text.setAttribute("font-size", fs.toFixed(1));
@@ -814,7 +822,7 @@
   }
 
   function updateSvgClass() {
-    svg.setAttribute("class", "grid mode-" + mode + (pickingCenter ? " picking-center" : ""));
+    svg.setAttribute("class", "grid mode-" + mode + (pickingCenter ? " picking-center" : "") + (state.lettersVisible ? "" : " hide-letters"));
   }
 
   function setMode(next) {
@@ -824,6 +832,8 @@
     });
     updateSvgClass();
     document.getElementById("palettePanel").style.display = next === "shade" ? "" : "none";
+    document.getElementById("symmetryPanel").style.display = next === "shade" ? "" : "none";
+    document.getElementById("numberingPanel").style.display = next === "number" ? "" : "none";
     modeHint.textContent = MODE_HINTS[next];
     if (next !== "text") deselectCell();
     if (next !== "find") clearFindLine();
@@ -969,23 +979,10 @@
     return { regex: new RegExp("^" + parts.join("") + "$"), length: lineKeys.length, preview: preview.join(" ") };
   }
 
-  function computeLine(k1, k2) {
+  function isAdjacent(k1, k2) {
     var p1 = k1.split(",").map(Number), p2 = k2.split(",").map(Number);
-    var q1 = p1[0], r1 = p1[1], q2 = p2[0], r2 = p2[1];
-    if (q1 === q2 && r1 === r2) return [k1];
-    var dir;
-    if (r1 === r2) dir = [q2 > q1 ? 1 : -1, 0];
-    else if (q1 === q2) dir = [0, r2 > r1 ? 1 : -1];
-    else if ((q1 + r1) === (q2 + r2)) { var dq = q2 > q1 ? 1 : -1; dir = [dq, -dq]; }
-    else return null;
-    var keys = [];
-    var q = q1, r = r1;
-    var steps = Math.max(Math.abs(q2 - q1), Math.abs(r2 - r1));
-    for (var i = 0; i <= steps; i++) {
-      keys.push(key(q, r));
-      q += dir[0]; r += dir[1];
-    }
-    return keys;
+    var dq = p2[0] - p1[0], dr = p2[1] - p1[1];
+    return EDGE_DIRS.some(function (d) { return d[0] === dq && d[1] === dr; });
   }
 
   function clearFindLine() {
@@ -1126,8 +1123,8 @@
     if (mode !== "find" || !findLineKeys || !findLineKeys.length) {
       findHint.hidden = false;
       findHint.textContent = mode === "find"
-        ? "Drag along a straight line of cells (any of the 3 directions) to search."
-        : "Switch to Find mode, then drag along a straight line of cells to search.";
+        ? "Drag through neighbouring cells — straight or curved — to search."
+        : "Switch to Find mode, then drag through cells to search.";
       patternPreview.hidden = true;
       finderOptionsPanel.hidden = true;
       resultsPanel.hidden = true;
@@ -1238,7 +1235,6 @@
     }
     if (mode === "find") {
       e.preventDefault();
-      findAnchor = k;
       isFindDragging = true;
       setFindLine([k]);
       return;
@@ -1270,9 +1266,15 @@
   document.addEventListener("pointermove", function (e) {
     if (isFindDragging) {
       var fk = cellFromPoint(e.clientX, e.clientY);
-      if (fk) {
-        var line = computeLine(findAnchor, fk);
-        if (line) setFindLine(line);
+      if (fk && findLineKeys && state.cells[fk] && !isBlocked(state.cells[fk])) {
+        var lastIdx = findLineKeys.length - 1;
+        if (fk === findLineKeys[lastIdx]) {
+          // hovering the same cell, nothing to do
+        } else if (findLineKeys.length >= 2 && fk === findLineKeys[lastIdx - 1]) {
+          setFindLine(findLineKeys.slice(0, lastIdx)); // backtrack one step
+        } else if (findLineKeys.indexOf(fk) === -1 && isAdjacent(findLineKeys[lastIdx], fk)) {
+          setFindLine(findLineKeys.concat([fk])); // extend to an adjacent cell
+        }
       }
       return;
     }
@@ -1297,7 +1299,7 @@
     if (selectedKey && selectedKey !== k) {
       var prevG = cellGroup(selectedKey);
       if (prevG) {
-        prevG.querySelector("text").style.visibility = "";
+        prevG.querySelector(".cell-letter").style.visibility = "";
         prevG.classList.remove("selected");
       }
       refreshCellVisual(selectedKey);
@@ -1306,8 +1308,8 @@
     refreshCellVisual(k);
     var g = cellGroup(k);
     g.classList.add("selected");
-    var cx = parseFloat(g.querySelector("text").getAttribute("x"));
-    var cy = parseFloat(g.querySelector("text").getAttribute("y"));
+    var cx = parseFloat(g.querySelector(".cell-letter").getAttribute("x"));
+    var cy = parseFloat(g.querySelector(".cell-letter").getAttribute("y"));
     var w = state.hexR * 1.15, h = state.hexR * 0.85;
     cellInput.style.left = (cx - w / 2) + "px";
     cellInput.style.top = (cy - h / 2) + "px";
@@ -1316,7 +1318,7 @@
     cellInput.style.fontSize = cellFontSize(state.hexR, (state.cells[k].text || "").length).toFixed(1) + "px";
     cellInput.style.display = "block";
     cellInput.value = state.cells[k].text || "";
-    var textEl = g.querySelector("text");
+    var textEl = g.querySelector(".cell-letter");
     textEl.style.visibility = "hidden";
     cellInput.focus();
     cellInput.select();
@@ -1327,7 +1329,7 @@
     var k = selectedKey;
     var g = cellGroup(k);
     if (g) {
-      g.querySelector("text").style.visibility = "";
+      g.querySelector(".cell-letter").style.visibility = "";
       g.classList.remove("selected");
     }
     selectedKey = null;
@@ -1343,7 +1345,7 @@
     cellInput.value = v;
     state.cells[selectedKey].text = v;
     var g = cellGroup(selectedKey);
-    var text = g.querySelector("text");
+    var text = g.querySelector(".cell-letter");
     var fs = cellFontSize(state.hexR, v.length);
     text.setAttribute("font-size", fs.toFixed(1));
     text.textContent = v;
@@ -1405,7 +1407,7 @@
     var pt = svg.createSVGPoint();
     pt.x = clientX; pt.y = clientY;
     var svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
-    var textEl = g.querySelector("text");
+    var textEl = g.querySelector(".cell-letter");
     var ccx = parseFloat(textEl.getAttribute("x"));
     var ccy = parseFloat(textEl.getAttribute("y"));
     var lx = svgP.x - ccx, ly = svgP.y - ccy;
@@ -1479,6 +1481,17 @@
     state.numbering.visible = !state.numbering.visible;
     updateNumberingUI();
     render();
+  });
+
+  function updateLettersUI() {
+    lettersVisibleBtn.textContent = state.lettersVisible ? "Hide letters" : "Show letters";
+    lettersVisibleBtn.classList.toggle("primary", !state.lettersVisible);
+  }
+
+  lettersVisibleBtn.addEventListener("click", function () {
+    state.lettersVisible = !state.lettersVisible;
+    updateLettersUI();
+    updateSvgClass();
   });
 
   document.getElementById("setCenterBtn").addEventListener("click", function () {
@@ -1574,8 +1587,8 @@
 
   document.getElementById("exportJsonBtn").addEventListener("click", async function () {
     var numberingOut = { type: state.numbering.type, visible: state.numbering.visible, customStarts: Array.from(state.numbering.customStarts) };
-    var payload = JSON.stringify({ radius: state.radius, cells: state.cells, symmetry: state.symmetry, numbering: numberingOut }, null, 0);
-    var ok = await saveFile("combwright-grid.json", payload, "application/json");
+    var payload = JSON.stringify({ radius: state.radius, cells: state.cells, symmetry: state.symmetry, numbering: numberingOut, lettersVisible: state.lettersVisible }, null, 0);
+    var ok = await saveFile("hexword-grid.json", payload, "application/json");
     if (!ok) window.alert("Couldn't save the file here. Copy this instead:\n\n" + payload.slice(0, 4000));
   });
 
@@ -1595,18 +1608,20 @@
         state.symmetry = data.symmetry || { type: "none", center: { q0: 0, r0: 0 } };
         var numberingIn = data.numbering || { type: "down", visible: false, customStarts: [] };
         state.numbering = { type: numberingIn.type, visible: numberingIn.visible, customStarts: new Set(numberingIn.customStarts || []) };
+        state.lettersVisible = data.lettersVisible !== false;
         radiusInput.value = data.radius;
         document.getElementById("symmetrySelect").value = state.symmetry.type;
         pickingCenter = false;
         updateSvgClass();
         updateSymUI();
         updateNumberingUI();
+        updateLettersUI();
         deselectCell();
         clearFindLine();
         updateFindUI();
         render();
       } catch (err) {
-        window.alert("That file doesn't look like a Combwright grid.");
+        window.alert("That file doesn't look like a HexWord grid.");
       }
     };
     reader.readAsText(file);
@@ -1658,7 +1673,7 @@
       ctx.strokeStyle = "#c4cabd";
       ctx.lineWidth = 1.5;
       ctx.stroke();
-      if (cell.text) {
+      if (cell.text && state.lettersVisible) {
         var fs = cellFontSize(hexR, cell.text.length);
         ctx.font = "700 " + fs + "px 'IBM Plex Mono', monospace";
         ctx.fillStyle = cell.color === "#23231f" ? "#f2efe7" : "#1f2420";
@@ -1667,11 +1682,11 @@
         ctx.fillText(cell.text, g.cx + offX, g.cy + offY + fs * 0.03);
       }
       if (numberingMap && numberingMap.has(k)) {
-        ctx.font = "700 " + (hexR * 0.28).toFixed(1) + "px 'IBM Plex Mono', monospace";
+        ctx.font = "700 " + (hexR * 0.38).toFixed(1) + "px 'IBM Plex Mono', monospace";
         ctx.fillStyle = cell.color === "#23231f" ? "#f2efe7" : "#5c655b";
         ctx.textAlign = "left";
         ctx.textBaseline = "top";
-        ctx.fillText(numberingMap.get(k), g.cx + offX - hexR * 0.55, g.cy + offY - hexR * 0.62);
+        ctx.fillText(numberingMap.get(k), g.cx + offX - hexR * 0.32, g.cy + offY - hexR * 0.38);
       }
     });
     ctx.beginPath();
@@ -1695,7 +1710,7 @@
     ctx.lineCap = "round";
     ctx.stroke();
     canvas.toBlob(async function (blob) {
-      var ok = await saveFile("combwright-grid.png", blob, "image/png");
+      var ok = await saveFile("hexword-grid.png", blob, "image/png");
       if (!ok) window.alert("Couldn't offer the PNG download here.");
     }, "image/png");
   });
@@ -1705,6 +1720,7 @@
   setMode("text");
   updateSymUI();
   updateNumberingUI();
+  updateLettersUI();
   setZoom(zoomIndex());
   loadDictionary();
   loadVectors();
