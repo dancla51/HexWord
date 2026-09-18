@@ -246,7 +246,7 @@
   .cell text.cell-number {
     font-family: var(--font-mono);
     font-weight: 700;
-    fill: var(--ink-soft);
+    fill: var(--ink);
     text-anchor: start;
     dominant-baseline: hanging;
     pointer-events: none;
@@ -733,9 +733,9 @@
       if (numberingMap && numberingMap.has(k)) {
         var num = document.createElementNS("http://www.w3.org/2000/svg", "text");
         num.setAttribute("class", "cell-number");
-        num.setAttribute("x", (g.cx + offX - hexR * 0.32).toFixed(1));
-        num.setAttribute("y", (g.cy + offY - hexR * 0.38).toFixed(1));
-        num.setAttribute("font-size", (hexR * 0.38).toFixed(1));
+        num.setAttribute("x", (g.cx + offX - hexR * 0.34).toFixed(1));
+        num.setAttribute("y", (g.cy + offY - hexR * 0.72).toFixed(1));
+        num.setAttribute("font-size", (hexR * 0.30).toFixed(1));
         num.style.fill = cell.color === "#23231f" ? "#f2efe7" : "";
         num.textContent = numberingMap.get(k);
         group.appendChild(num);
@@ -1682,11 +1682,11 @@
         ctx.fillText(cell.text, g.cx + offX, g.cy + offY + fs * 0.03);
       }
       if (numberingMap && numberingMap.has(k)) {
-        ctx.font = "700 " + (hexR * 0.38).toFixed(1) + "px 'IBM Plex Mono', monospace";
-        ctx.fillStyle = cell.color === "#23231f" ? "#f2efe7" : "#5c655b";
+        ctx.font = "700 " + (hexR * 0.30).toFixed(1) + "px 'IBM Plex Mono', monospace";
+        ctx.fillStyle = cell.color === "#23231f" ? "#f2efe7" : "#1f2420";
         ctx.textAlign = "left";
         ctx.textBaseline = "top";
-        ctx.fillText(numberingMap.get(k), g.cx + offX - hexR * 0.32, g.cy + offY - hexR * 0.38);
+        ctx.fillText(numberingMap.get(k), g.cx + offX - hexR * 0.34, g.cy + offY - hexR * 0.72);
       }
     });
     ctx.beginPath();
