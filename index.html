@@ -282,6 +282,10 @@
 <div class="app">
   <div class="topbar">
     <h1>HexWord</h1>
+    <div class="row" style="align-self:center;">
+      <button class="btn icon" id="undoBtn" aria-label="Undo" title="Undo (Ctrl+Z)" disabled>↶</button>
+      <button class="btn icon" id="redoBtn" aria-label="Redo" title="Redo (Ctrl+Y)" disabled>↷</button>
+    </div>
     <div class="stats" id="statsLine">—</div>
   </div>
 
@@ -482,6 +486,8 @@
   var numberingVisibleBtn = document.getElementById("numberingVisibleBtn");
   var numberingHint = document.getElementById("numberingHint");
   var lettersVisibleBtn = document.getElementById("lettersVisibleBtn");
+  var undoBtn = document.getElementById("undoBtn");
+  var redoBtn = document.getElementById("redoBtn");
   var findHint = document.getElementById("findHint");
   var patternPreview = document.getElementById("patternPreview");
   var finderOptionsPanel = document.getElementById("finderOptionsPanel");
@@ -1242,6 +1248,7 @@
     if (mode === "number") {
       if (state.numbering.type === "custom" && !isBlocked(state.cells[k])) {
         e.preventDefault();
+        pushUndo();
         var set = state.numbering.customStarts;
         if (set.has(k)) set.delete(k); else set.add(k);
         if (state.numbering.visible) render();
@@ -1256,6 +1263,7 @@
     } else {
       return;
     }
+    pushUndo();
     isPainting = true;
     touchedThisStroke = {};
     touchedThisStroke[k] = true;
@@ -1295,7 +1303,10 @@
     if (e.target === canvasWrap || e.target === canvasInner) deselectCell();
   });
 
+  var textEditUndoPushed = false;
+
   function selectCell(k) {
+    textEditUndoPushed = false;
     if (selectedKey && selectedKey !== k) {
       var prevG = cellGroup(selectedKey);
       if (prevG) {
@@ -1337,10 +1348,99 @@
     cellInput.blur();
   }
 
+  // ---------- Undo / redo ----------
+  // Covers puzzle content only (shape, shading, text, symmetry, numbering) —
+  // not view preferences like zoom, current mode, or the active selection.
+  var undoStack = [];
+  var redoStack = [];
+  var UNDO_LIMIT = 100;
+
+  function snapshotState() {
+    return {
+      radius: state.radius,
+      cells: JSON.parse(JSON.stringify(state.cells)),
+      symmetry: JSON.parse(JSON.stringify(state.symmetry)),
+      numbering: {
+        type: state.numbering.type,
+        visible: state.numbering.visible,
+        customStarts: Array.from(state.numbering.customStarts)
+      },
+      lettersVisible: state.lettersVisible
+    };
+  }
+
+  function restoreSnapshot(snap) {
+    state.radius = snap.radius;
+    state.cells = JSON.parse(JSON.stringify(snap.cells));
+    state.symmetry = JSON.parse(JSON.stringify(snap.symmetry));
+    state.numbering = {
+      type: snap.numbering.type,
+      visible: snap.numbering.visible,
+      customStarts: new Set(snap.numbering.customStarts)
+    };
+    state.lettersVisible = snap.lettersVisible;
+  }
+
+  function updateUndoRedoUI() {
+    undoBtn.disabled = undoStack.length === 0;
+    redoBtn.disabled = redoStack.length === 0;
+  }
+
+  function pushUndo() {
+    undoStack.push(snapshotState());
+    if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+    redoStack = [];
+    updateUndoRedoUI();
+  }
+
+  function applyRestoredState(snap) {
+    deselectCell();
+    clearFindLine();
+    pickingCenter = false;
+    restoreSnapshot(snap);
+    radiusInput.value = state.radius;
+    document.getElementById("symmetrySelect").value = state.symmetry.type;
+    updateSvgClass();
+    updateSymUI();
+    updateNumberingUI();
+    updateLettersUI();
+    updateFindUI();
+    render();
+  }
+
+  function performUndo() {
+    if (!undoStack.length) return;
+    var current = snapshotState();
+    var prev = undoStack.pop();
+    redoStack.push(current);
+    applyRestoredState(prev);
+    updateUndoRedoUI();
+  }
+
+  function performRedo() {
+    if (!redoStack.length) return;
+    var current = snapshotState();
+    var next = redoStack.pop();
+    undoStack.push(current);
+    applyRestoredState(next);
+    updateUndoRedoUI();
+  }
+
+  undoBtn.addEventListener("click", performUndo);
+  redoBtn.addEventListener("click", performRedo);
+
+  document.addEventListener("keydown", function (e) {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    var k = e.key.toLowerCase();
+    if (k === "z") { e.preventDefault(); performUndo(); }
+    else if (k === "y") { e.preventDefault(); performRedo(); }
+  });
+
   cellInput.addEventListener("blur", deselectCell);
 
   cellInput.addEventListener("input", function () {
     if (!selectedKey) return;
+    if (!textEditUndoPushed) { pushUndo(); textEditUndoPushed = true; }
     var v = cellInput.value.toUpperCase().slice(0, MAX_CELL_CHARS);
     cellInput.value = v;
     state.cells[selectedKey].text = v;
@@ -1469,6 +1569,7 @@
 
   numberingSelect.addEventListener("change", function (e) {
     var newType = e.target.value;
+    pushUndo();
     if (newType === "custom" && state.numbering.type !== "custom" && state.numbering.customStarts.size === 0) {
       state.numbering.customStarts = new Set(computeNumbering().keys());
     }
@@ -1545,11 +1646,15 @@
   document.getElementById("applySizeBtn").addEventListener("click", function () {
     var r = Math.min(20, Math.max(1, parseInt(radiusInput.value, 10) || 1));
     radiusInput.value = r;
+    pushUndo();
     if (applyRadius(r, true)) { deselectCell(); clearFindLine(); updateFindUI(); render(); }
+    else undoStack.pop(); // cancelled at the confirm — don't leave a no-op undo entry
+    updateUndoRedoUI();
   });
 
   document.getElementById("freshBtn").addEventListener("click", function () {
     if (!window.confirm("Start a fresh grid? This clears the outline, colours and letters.")) return;
+    pushUndo();
     var r = Math.min(20, Math.max(1, parseInt(radiusInput.value, 10) || 5));
     state.cells = buildCells(r, false).cells;
     state.radius = r;
@@ -1561,6 +1666,7 @@
 
   document.getElementById("clearInkBtn").addEventListener("click", function () {
     if (!window.confirm("Clear all colours and letters? The grid outline stays as-is.")) return;
+    pushUndo();
     Object.keys(state.cells).forEach(function (k) {
       state.cells[k].color = null;
       state.cells[k].text = "";
@@ -1603,6 +1709,7 @@
       try {
         var data = JSON.parse(reader.result);
         if (!data.cells || !data.radius) throw new Error("bad shape");
+        pushUndo();
         state.radius = data.radius;
         state.cells = data.cells;
         state.symmetry = data.symmetry || { type: "none", center: { q0: 0, r0: 0 } };
@@ -1721,6 +1828,7 @@
   updateSymUI();
   updateNumberingUI();
   updateLettersUI();
+  updateUndoRedoUI();
   setZoom(zoomIndex());
   loadDictionary();
   loadVectors();
