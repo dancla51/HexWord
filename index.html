@@ -419,6 +419,7 @@
       <section class="panel" id="palettePanel" hidden>
         <h2>Ink</h2>
         <div class="swatches" id="swatches"></div>
+        <p class="hint" id="inkHint"></p>
       </section>
 
       <section class="panel" id="symmetryPanel" hidden>
@@ -740,7 +741,7 @@
     coords.forEach(function (c) {
       var k = key(c[0], c[1]);
       if (preserve && state.cells[k]) next[k] = state.cells[k];
-      else next[k] = { active: true, color: null, text: "" };
+      else next[k] = { active: true, color: null, text: "", textColor: null };
     });
     if (preserve) {
       Object.keys(state.cells).forEach(function (k) {
@@ -851,7 +852,7 @@
       text.setAttribute("y", g.cy + offY);
       var fs = cellFontSize(hexR, (cell.text || "").length);
       text.setAttribute("font-size", fs.toFixed(1));
-      text.style.fill = cell.color === "#23231f" ? "#f2efe7" : "";
+      text.style.fill = cell.textColor || (cell.color === "#23231f" ? "#f2efe7" : "");
       text.textContent = cell.text || "";
       group.appendChild(text);
 
@@ -942,7 +943,7 @@
     poly.style.fill = (cell.active && cell.color) ? cell.color : "";
     var fs = cellFontSize(state.hexR, (cell.text || "").length);
     text.setAttribute("font-size", fs.toFixed(1));
-    text.style.fill = cell.color === "#23231f" ? "#f2efe7" : "";
+    text.style.fill = cell.textColor || (cell.color === "#23231f" ? "#f2efe7" : "");
     text.textContent = cell.text || "";
   }
 
@@ -959,7 +960,10 @@
     });
     updateSvgClass();
     document.getElementById("modePanelTitle").textContent = MODE_LABELS[next] || next;
-    document.getElementById("palettePanel").hidden = next !== "shade";
+    document.getElementById("palettePanel").hidden = next !== "shade" && next !== "text";
+    document.getElementById("inkHint").textContent = next === "text"
+      ? "Click a cell to colour its letter."
+      : "Click or drag to paint cell backgrounds.";
     document.getElementById("symmetryPanel").hidden = next !== "shade";
     document.getElementById("numberingPanel").hidden = next !== "number";
     document.getElementById("findModePanel").hidden = next !== "find";
@@ -1359,6 +1363,10 @@
     }
     if (mode === "text") {
       e.preventDefault();
+      if (state.cells[k].textColor !== selectedColor) {
+        pushUndo();
+        state.cells[k].textColor = selectedColor;
+      }
       selectCell(k);
       return;
     }
@@ -1990,7 +1998,7 @@
       if (cell.text && state.lettersVisible) {
         var fs = cellFontSize(hexR, cell.text.length);
         ctx.font = "700 " + fs + "px 'IBM Plex Mono', monospace";
-        ctx.fillStyle = cell.color === "#23231f" ? "#f2efe7" : "#1f2420";
+        ctx.fillStyle = cell.textColor || (cell.color === "#23231f" ? "#f2efe7" : "#1f2420");
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(cell.text, g.cx + offX, g.cy + offY + fs * 0.03);
