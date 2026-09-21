@@ -566,6 +566,17 @@
   var isFindDragging = false;
   var isPanning = false;
   var panStart = null;
+  var panX = 0, panY = 0;
+
+  function applyPan() {
+    canvasInner.style.transform = "translate(" + panX + "px, " + panY + "px)";
+  }
+
+  function resetPan() {
+    panX = 0;
+    panY = 0;
+    canvasInner.style.transform = "";
+  }
 
   var dictReady = false;
   var wordRank = {};
@@ -1385,8 +1396,9 @@
 
   document.addEventListener("pointermove", function (e) {
     if (isPanning) {
-      canvasWrap.scrollLeft = panStart.left - (e.clientX - panStart.x);
-      canvasWrap.scrollTop = panStart.top - (e.clientY - panStart.y);
+      panX = panStart.panX + (e.clientX - panStart.x);
+      panY = panStart.panY + (e.clientY - panStart.y);
+      applyPan();
       return;
     }
     if (isFindDragging) {
@@ -1422,7 +1434,7 @@
     if (e.target.closest(".cell") || e.target.closest(".cell-input")) return;
     deselectCell();
     isPanning = true;
-    panStart = { x: e.clientX, y: e.clientY, left: canvasWrap.scrollLeft, top: canvasWrap.scrollTop };
+    panStart = { x: e.clientX, y: e.clientY, panX: panX, panY: panY };
     canvasWrap.classList.add("panning");
     e.preventDefault();
   });
@@ -1521,7 +1533,9 @@
     deselectCell();
     clearFindLine();
     pickingCenter = false;
+    var radiusBefore = state.radius;
     restoreSnapshot(snap);
+    if (state.radius !== radiusBefore) resetPan();
     radiusInput.value = state.radius;
     document.getElementById("symmetrySelect").value = state.symmetry.type;
     updateSvgClass();
@@ -1747,14 +1761,6 @@
     if (!helpCard.contains(e.target)) closeHelp();
   });
 
-  // Auto-open once, the first time this browser ever opens the page.
-  try {
-    if (!localStorage.getItem("hexword-seen-help")) {
-      openHelp();
-      localStorage.setItem("hexword-seen-help", "1");
-    }
-  } catch (err) { /* localStorage unavailable (private window, etc.) — skip auto-open */ }
-
   // ---------- Background style ----------
   // A view preference, not puzzle content — not part of undo/redo or saved files.
   var BACKGROUND_OPTIONS = [{ id: "paper", label: "Graph paper", value: null }].concat(
@@ -1845,7 +1851,7 @@
     var r = Math.min(20, Math.max(1, parseInt(radiusInput.value, 10) || 1));
     radiusInput.value = r;
     pushUndo();
-    if (applyRadius(r, true)) { deselectCell(); clearFindLine(); updateFindUI(); render(); }
+    if (applyRadius(r, true)) { deselectCell(); clearFindLine(); updateFindUI(); resetPan(); render(); }
     else undoStack.pop(); // cancelled at the confirm — don't leave a no-op undo entry
     updateUndoRedoUI();
   });
@@ -1859,6 +1865,7 @@
     deselectCell();
     clearFindLine();
     updateFindUI();
+    resetPan();
     render();
   });
 
@@ -1884,6 +1891,7 @@
     deselectCell();
     clearFindLine();
     updateFindUI();
+    resetPan();
     render();
   }
   document.getElementById("zoomIn").addEventListener("click", function () { setZoom(zoomIndex() + 1); });
@@ -1924,6 +1932,7 @@
         deselectCell();
         clearFindLine();
         updateFindUI();
+        resetPan();
         render();
       } catch (err) {
         window.alert("That file doesn't look like a HexWord grid.");
