@@ -419,7 +419,13 @@
       <section class="panel" id="palettePanel" hidden>
         <h2>Ink</h2>
         <div class="swatches" id="swatches"></div>
-        <p class="hint" id="inkHint"></p>
+        <p class="hint">Click or drag to paint cell backgrounds.</p>
+      </section>
+
+      <section class="panel" id="letterColorPanel" hidden>
+        <h2>Letter colour</h2>
+        <div class="swatches" id="textSwatches"></div>
+        <p class="hint">Click a cell to colour its letter.</p>
       </section>
 
       <section class="panel" id="symmetryPanel" hidden>
@@ -558,6 +564,7 @@
 
   var mode = "shape";
   var selectedColor = PALETTE[1].value;
+  var selectedTextColor = PALETTE[0].value;
   var selectedKey = null;
   var isPainting = false;
   var paintValue = null;
@@ -960,10 +967,8 @@
     });
     updateSvgClass();
     document.getElementById("modePanelTitle").textContent = MODE_LABELS[next] || next;
-    document.getElementById("palettePanel").hidden = next !== "shade" && next !== "text";
-    document.getElementById("inkHint").textContent = next === "text"
-      ? "Click a cell to colour its letter."
-      : "Click or drag to paint cell backgrounds.";
+    document.getElementById("palettePanel").hidden = next !== "shade";
+    document.getElementById("letterColorPanel").hidden = next !== "text";
     document.getElementById("symmetryPanel").hidden = next !== "shade";
     document.getElementById("numberingPanel").hidden = next !== "number";
     document.getElementById("findModePanel").hidden = next !== "find";
@@ -1363,9 +1368,9 @@
     }
     if (mode === "text") {
       e.preventDefault();
-      if (state.cells[k].textColor !== selectedColor) {
+      if (state.cells[k].textColor !== selectedTextColor) {
         pushUndo();
-        state.cells[k].textColor = selectedColor;
+        state.cells[k].textColor = selectedTextColor;
       }
       selectCell(k);
       return;
@@ -1845,11 +1850,31 @@
         selectedColor = p.value;
         wrap.querySelectorAll(".swatch").forEach(function (s) { s.classList.remove("selected"); });
         b.classList.add("selected");
-        if (mode === "text" && selectedKey && state.cells[selectedKey].textColor !== selectedColor) {
+      });
+      wrap.appendChild(b);
+    });
+  }
+
+  function buildTextColorSwatches() {
+    var wrap = document.getElementById("textSwatches");
+    wrap.innerHTML = "";
+    PALETTE.forEach(function (p) {
+      var b = document.createElement("button");
+      b.className = "swatch" + (p.value === null ? " blank" : "") + (p.value === selectedTextColor ? " selected" : "");
+      b.title = p.label;
+      b.setAttribute("aria-label", p.label);
+      if (p.value) b.style.background = p.value;
+      if (p.value === null) b.innerHTML = '<span class="mark">✕</span>';
+      b.addEventListener("click", function () {
+        selectedTextColor = p.value;
+        wrap.querySelectorAll(".swatch").forEach(function (s) { s.classList.remove("selected"); });
+        b.classList.add("selected");
+        // Re-colour a cell that's already selected, rather than waiting for the next click.
+        if (selectedKey && state.cells[selectedKey].textColor !== selectedTextColor) {
           pushUndo();
-          state.cells[selectedKey].textColor = selectedColor;
+          state.cells[selectedKey].textColor = selectedTextColor;
           refreshCellVisual(selectedKey); // keeps the (currently hidden) SVG letter in sync for when it reappears
-          cellInput.style.color = selectedColor || (state.cells[selectedKey].color === "#23231f" ? "#f2efe7" : "");
+          cellInput.style.color = selectedTextColor || (state.cells[selectedKey].color === "#23231f" ? "#f2efe7" : "");
         }
       });
       wrap.appendChild(b);
@@ -2045,6 +2070,7 @@
   });
 
   buildSwatches();
+  buildTextColorSwatches();
   buildBackgroundSwatches();
   applyBackgroundChoice();
   applyRadius(state.radius, false);
