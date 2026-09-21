@@ -435,7 +435,7 @@
       </section>
 
       <section class="panel" id="symmetryPanel" hidden>
-        <h2>Shading symmetry</h2>
+        <h2>Symmetry</h2>
         <select class="select-field" id="symmetrySelect">
           <option value="none">No symmetry</option>
           <option value="rot2">2-fold rotational</option>
@@ -449,7 +449,7 @@
           <button class="btn small" id="setCenterBtn">Set centre</button>
           <span class="hint" id="symCenterLabel" style="flex:1;"></span>
         </div>
-        <p class="hint" id="symHint">Shading a cell also shades its symmetric partner(s).</p>
+        <p class="hint" id="symHint">Shading or reshaping a cell also affects its symmetric partner(s).</p>
       </section>
 
       <section class="panel" id="numberingPanel" hidden>
@@ -551,6 +551,17 @@
     { id: "sky", label: "Sky", value: "#9fbfe8" },
     { id: "violet", label: "Violet", value: "#c6b0dd" }
   ];
+  // Letter colour has no "no override" option — Black/White are the two
+  // practical defaults for contrast, so they replace Blank as the anchors.
+  var TEXT_PALETTE = [
+    { id: "black", label: "Black", value: "#23231f" },
+    { id: "white", label: "White", value: "#f2efe7" },
+    { id: "rose", label: "Rose", value: "#e3a89e" },
+    { id: "amber", label: "Amber", value: "#eecb85" },
+    { id: "moss", label: "Moss", value: "#aed19f" },
+    { id: "sky", label: "Sky", value: "#9fbfe8" },
+    { id: "violet", label: "Violet", value: "#c6b0dd" }
+  ];
   var MODE_HINTS = {
     shape: "Click a cell to add or remove it from the puzzle's outline. Removed cells stay visible as dashed ghosts so you can bring them back.",
     shade: "Click or drag across cells to paint them with the selected ink. Choose Blank to erase back to plain paper.",
@@ -570,7 +581,7 @@
 
   var mode = "shape";
   var selectedColor = PALETTE[1].value;
-  var selectedTextColor = PALETTE[0].value;
+  var selectedTextColor = TEXT_PALETTE[0].value;
   var selectedKey = null;
   var isPainting = false;
   var paintValue = null;
@@ -975,7 +986,7 @@
     document.getElementById("modePanelTitle").textContent = MODE_LABELS[next] || next;
     document.getElementById("palettePanel").hidden = next !== "shade";
     document.getElementById("letterColorPanel").hidden = next !== "text";
-    document.getElementById("symmetryPanel").hidden = next !== "shade";
+    document.getElementById("symmetryPanel").hidden = next !== "shade" && next !== "shape";
     document.getElementById("numberingPanel").hidden = next !== "number";
     document.getElementById("findModePanel").hidden = next !== "find";
     modeHint.textContent = MODE_HINTS[next];
@@ -990,6 +1001,15 @@
     if (mode === "shape") {
       cell.active = paintValue;
       if (!cell.active) { cell.color = null; cell.text = ""; }
+      var shapeParts = k.split(",").map(Number);
+      symmetryOrbit(shapeParts[0], shapeParts[1]).forEach(function (p) {
+        var nk = key(p[0], p[1]);
+        if (nk === k) return;
+        var ncell = state.cells[nk];
+        if (!ncell) return;
+        ncell.active = paintValue;
+        if (!ncell.active) { ncell.color = null; ncell.text = ""; }
+      });
       render();
     } else if (mode === "shade") {
       if (!cell.active) return;
@@ -1655,8 +1675,8 @@
     btn.classList.toggle("primary", pickingCenter);
     document.getElementById("symCenterLabel").textContent = active ? describeCenter(state.symmetry.center) : "";
     document.getElementById("symHint").textContent = active
-      ? "Shading a cell also shades its symmetric partner(s)."
-      : "Choose a symmetry above to link shading across the grid.";
+      ? "Shading or reshaping a cell also affects its symmetric partner(s)."
+      : "Choose a symmetry above to link Shape and Shade edits across the grid.";
   }
 
   function pickCenterAt(g, clientX, clientY) {
@@ -1864,7 +1884,7 @@
   function buildTextColorSwatches() {
     var wrap = document.getElementById("textSwatches");
     wrap.innerHTML = "";
-    PALETTE.forEach(function (p) {
+    TEXT_PALETTE.forEach(function (p) {
       var b = document.createElement("button");
       b.className = "swatch" + (p.value === null ? " blank" : "") + (p.value === selectedTextColor ? " selected" : "");
       b.title = p.label;
