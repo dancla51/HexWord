@@ -134,24 +134,29 @@
 
   .workspace { display: flex; flex: 1; min-height: 0; gap: 14px; }
 
+  /* display is applied only via :not([hidden]) so a plain [hidden] attribute
+     reliably hides these regardless of host — without it, this class's own
+     "display: flex" and the browser's default (unimportant) [hidden] rule
+     have equal specificity, and being an author-origin rule, this class would
+     win and keep the element visible even while "hidden". */
   .controls {
     width: 250px;
     flex: none;
     overflow-y: auto;
-    display: flex;
     flex-direction: column;
     gap: 14px;
     padding-right: 4px;
   }
+  .controls:not([hidden]) { display: flex; }
   .panel {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 12px;
-    display: flex;
     flex-direction: column;
     gap: 8px;
   }
+  .panel:not([hidden]) { display: flex; }
   .panel h2 {
     font-size: 0.68rem;
     text-transform: uppercase;
@@ -160,7 +165,8 @@
     margin: 0;
     font-weight: 600;
   }
-  .row { display: flex; align-items: center; gap: 6px; }
+  .row { align-items: center; gap: 6px; }
+  .row:not([hidden]) { display: flex; }
   .row.wrap { flex-wrap: wrap; }
   .spacer { flex: 1; }
 
