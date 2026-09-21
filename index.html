@@ -1471,6 +1471,7 @@
     cellInput.style.width = w + "px";
     cellInput.style.height = h + "px";
     cellInput.style.fontSize = cellFontSize(state.hexR, (state.cells[k].text || "").length).toFixed(1) + "px";
+    cellInput.style.color = state.cells[k].textColor || (state.cells[k].color === "#23231f" ? "#f2efe7" : "");
     cellInput.style.display = "block";
     cellInput.value = state.cells[k].text || "";
     var textEl = g.querySelector(".cell-letter");
@@ -1844,6 +1845,12 @@
         selectedColor = p.value;
         wrap.querySelectorAll(".swatch").forEach(function (s) { s.classList.remove("selected"); });
         b.classList.add("selected");
+        if (mode === "text" && selectedKey && state.cells[selectedKey].textColor !== selectedColor) {
+          pushUndo();
+          state.cells[selectedKey].textColor = selectedColor;
+          refreshCellVisual(selectedKey); // keeps the (currently hidden) SVG letter in sync for when it reappears
+          cellInput.style.color = selectedColor || (state.cells[selectedKey].color === "#23231f" ? "#f2efe7" : "");
+        }
       });
       wrap.appendChild(b);
     });
