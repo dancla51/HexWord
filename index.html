@@ -1733,8 +1733,11 @@
   // ---------- Help modal ----------
   var helpOverlay = document.getElementById("helpOverlay");
   var helpCard = helpOverlay.querySelector(".modal-card");
-  function openHelp() { helpOverlay.hidden = false; }
-  function closeHelp() { helpOverlay.hidden = true; }
+  // Inline style, not just the hidden attribute: guarantees the show/hide
+  // takes effect regardless of any stylesheet's own display rule for this
+  // element, since inline styles win over stylesheet rules of any specificity.
+  function openHelp() { helpOverlay.hidden = false; helpOverlay.style.display = "flex"; }
+  function closeHelp() { helpOverlay.hidden = true; helpOverlay.style.display = "none"; }
   document.getElementById("helpBtn").addEventListener("click", openHelp);
   document.getElementById("closeHelpBtn").addEventListener("click", function (e) {
     e.preventDefault();
