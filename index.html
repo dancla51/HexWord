@@ -555,7 +555,7 @@
   // practical defaults for contrast, so they replace Blank as the anchors.
   var TEXT_PALETTE = [
     { id: "black", label: "Black", value: "#23231f" },
-    { id: "white", label: "White", value: "#f2efe7" },
+    { id: "white", label: "White", value: "#ffffff" },
     { id: "rose", label: "Rose", value: "#e3a89e" },
     { id: "amber", label: "Amber", value: "#eecb85" },
     { id: "moss", label: "Moss", value: "#aed19f" },
@@ -1394,10 +1394,6 @@
     }
     if (mode === "text") {
       e.preventDefault();
-      if (state.cells[k].textColor !== selectedTextColor) {
-        pushUndo();
-        state.cells[k].textColor = selectedTextColor;
-      }
       selectCell(k);
       return;
     }
@@ -1482,6 +1478,10 @@
 
   function selectCell(k) {
     textEditUndoPushed = false;
+    if (mode === "text" && state.cells[k].textColor !== selectedTextColor) {
+      pushUndo();
+      state.cells[k].textColor = selectedTextColor;
+    }
     if (selectedKey && selectedKey !== k) {
       var prevG = cellGroup(selectedKey);
       if (prevG) {
