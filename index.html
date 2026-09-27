@@ -443,7 +443,7 @@
       <section class="panel" id="backgroundPanel" hidden>
         <h2>Canvas background</h2>
         <div class="swatches" id="bgSwatches"></div>
-        <p class="hint">Changes the backdrop behind the grid. It isn't saved with the puzzle.</p>
+        <p class="hint">Changes the backdrop behind the grid. It's saved with the puzzle and used in PNG exports.</p>
       </section>
 
       <section class="panel" id="symmetryPanel" hidden>
@@ -1842,16 +1842,46 @@
   });
 
   // ---------- Background style ----------
-  // A view preference, not puzzle content — not part of undo/redo or saved files.
+  // Saved in JSON files and used by the PNG export, but not part of undo/redo.
   var BACKGROUND_OPTIONS = [{ id: "paper", label: "Graph paper", value: null }].concat(
     PALETTE.map(function (p) { return { id: p.id, label: p.label, value: p.value }; })
   );
   var backgroundChoice = "paper";
-  var PAPER_BG = "radial-gradient(var(--border) 1px, transparent 1px) 0 0 / 22px 22px, var(--surface)";
+  var PAPER_DOT_SPACING = 22;
+  var PAPER_BG = "radial-gradient(var(--border) 1px, transparent 1px) 0 0 / " + PAPER_DOT_SPACING + "px " + PAPER_DOT_SPACING + "px, var(--surface)";
+
+  function currentBackgroundOption() {
+    return BACKGROUND_OPTIONS.find(function (o) { return o.id === backgroundChoice; }) || BACKGROUND_OPTIONS[0];
+  }
 
   function applyBackgroundChoice() {
-    var opt = BACKGROUND_OPTIONS.find(function (o) { return o.id === backgroundChoice; }) || BACKGROUND_OPTIONS[0];
+    var opt = currentBackgroundOption();
     canvasWrap.style.background = opt.id === "paper" ? PAPER_BG : (opt.value || "var(--surface)");
+  }
+
+  function setBackgroundChoice(id) {
+    backgroundChoice = BACKGROUND_OPTIONS.some(function (o) { return o.id === id; }) ? id : "paper";
+    applyBackgroundChoice();
+    buildBackgroundSwatches();
+  }
+
+  // Paints the on-screen background (resolving theme colours) onto an export canvas.
+  function paintBackground(ctx, width, height) {
+    var opt = currentBackgroundOption();
+    var css = getComputedStyle(document.documentElement);
+    var surface = css.getPropertyValue("--surface").trim() || "#ffffff";
+    ctx.fillStyle = opt.value || surface;
+    ctx.fillRect(0, 0, width, height);
+    if (opt.id !== "paper") return;
+    ctx.fillStyle = css.getPropertyValue("--border").trim() || "#c4cabd";
+    var half = PAPER_DOT_SPACING / 2;
+    for (var y = half; y < height; y += PAPER_DOT_SPACING) {
+      for (var x = half; x < width; x += PAPER_DOT_SPACING) {
+        ctx.beginPath();
+        ctx.arc(x, y, 1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
   }
 
   function buildBackgroundSwatches() {
@@ -1864,12 +1894,7 @@
       b.setAttribute("aria-label", opt.label);
       if (opt.value) b.style.background = opt.value;
       else if (opt.id !== "paper") b.style.background = "var(--surface)"; // blank/white ink option
-      b.addEventListener("click", function () {
-        backgroundChoice = opt.id;
-        applyBackgroundChoice();
-        wrap.querySelectorAll(".bg-swatch").forEach(function (s) { s.classList.remove("selected"); });
-        b.classList.add("selected");
-      });
+      b.addEventListener("click", function () { setBackgroundChoice(opt.id); });
       wrap.appendChild(b);
     });
   }
@@ -2010,7 +2035,7 @@
 
   document.getElementById("exportJsonBtn").addEventListener("click", async function () {
     var numberingOut = { type: state.numbering.type, visible: state.numbering.visible, customStarts: Array.from(state.numbering.customStarts), fontScale: state.numbering.fontScale };
-    var payload = JSON.stringify({ radius: state.radius, cells: state.cells, symmetry: state.symmetry, numbering: numberingOut, lettersVisible: state.lettersVisible }, null, 0);
+    var payload = JSON.stringify({ radius: state.radius, cells: state.cells, symmetry: state.symmetry, numbering: numberingOut, lettersVisible: state.lettersVisible, background: backgroundChoice }, null, 0);
     var ok = await saveFile("hexword-grid.json", payload, "application/json");
     if (!ok) window.alert("Couldn't save the file here. Copy this instead:\n\n" + payload.slice(0, 4000));
   });
@@ -2038,6 +2063,7 @@
           fontScale: typeof numberingIn.fontScale === "number" ? numberingIn.fontScale : DEFAULT_NUMBER_SCALE
         };
         state.lettersVisible = data.lettersVisible !== false;
+        setBackgroundChoice(data.background || "paper");
         radiusInput.value = data.radius;
         document.getElementById("symmetrySelect").value = state.symmetry.type;
         pickingCenter = false;
@@ -2088,8 +2114,7 @@
     canvas.height = height * scale;
     var ctx = canvas.getContext("2d");
     ctx.scale(scale, scale);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, width, height);
+    paintBackground(ctx, width, height);
     var numberingMap = state.numbering.visible ? computeNumbering() : null;
     keys.forEach(function (k) {
       var cell = state.cells[k];
