@@ -74,8 +74,8 @@
 
   .bg-swatches { display: flex; gap: 5px; }
   .bg-swatch {
-    width: 24px; height: 24px;
-    border-radius: 6px;
+    width: 30px; height: 30px;
+    border-radius: 7px;
     border: 2px solid var(--border);
     cursor: pointer;
     padding: 0;
@@ -140,7 +140,7 @@
      have equal specificity, and being an author-origin rule, this class would
      win and keep the element visible even while "hidden". */
   .controls {
-    width: 250px;
+    width: 290px;
     flex: none;
     overflow-y: auto;
     flex-direction: column;
@@ -252,21 +252,28 @@
     font-size: 0.85rem;
   }
 
-  .segmented { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-  .segmented button {
-    flex: 1;
+  .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .btn.icon.mini { width: 24px; height: 24px; font-size: 0.8rem; border-radius: 50%; }
+  .mode-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .mode-list button {
     appearance: none;
-    border: none;
+    border: 1px solid var(--border);
+    border-radius: 7px;
     background: var(--surface);
     color: var(--ink-soft);
-    padding: 8px 4px;
-    font-size: 0.8rem;
+    padding: 9px 6px;
+    font-size: 0.82rem;
     font-weight: 600;
     cursor: pointer;
-    border-right: 1px solid var(--border);
+    transition: background 120ms, border-color 120ms;
   }
-  .segmented button:last-child { border-right: none; }
-  .segmented button.active { background: var(--accent-soft); color: var(--accent); }
+  .mode-list button:hover { border-color: var(--accent); }
+  .mode-list button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .mode-list button.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 
   .hint { font-size: 0.78rem; color: var(--ink-soft); line-height: 1.45; margin: 0; }
 
@@ -356,6 +363,8 @@
     .workspace { flex-direction: column; }
     .controls { width: 100%; max-height: 46%; flex-direction: row; flex-wrap: wrap; overflow-y: auto; }
     .panel { flex: 1 1 220px; }
+    .panel.mode-panel { flex-basis: 100%; }
+    .mode-list { grid-template-columns: repeat(3, 1fr); }
     .toolbar-group { flex: 1 1 auto; }
   }
 </style>
@@ -367,19 +376,15 @@
       <button class="btn icon" id="helpBtn" aria-label="Help" title="Help">?</button>
       <button class="btn icon" id="undoBtn" aria-label="Undo" title="Undo (Ctrl+Z)" disabled>↶</button>
       <button class="btn icon" id="redoBtn" aria-label="Redo" title="Redo (Ctrl+Y)" disabled>↷</button>
-      <div class="stats" id="statsLine">—</div>
-    </div>
 
-    <div class="topbar-row">
       <div class="toolbar-group">
-        <button class="btn small" id="togglePanelBtn">Hide panel</button>
-        <div class="segmented" id="modeSeg">
-          <button data-mode="shape">Shape</button>
-          <button data-mode="shade">Shade</button>
-          <button data-mode="text" class="active">Write</button>
-          <button data-mode="find">Find</button>
-          <button data-mode="number">Number</button>
-        </div>
+        <button class="btn small" id="exportJsonBtn">Save JSON</button>
+        <button class="btn small" id="importJsonBtn">Load JSON</button>
+        <input type="file" id="importFileInput" accept="application/json" hidden>
+      </div>
+
+      <div class="toolbar-group">
+        <button class="btn small" id="exportPngBtn">Export PNG</button>
       </div>
 
       <div class="toolbar-group">
@@ -395,43 +400,50 @@
         <button class="btn icon" id="zoomIn" aria-label="Zoom in">+</button>
       </div>
 
-      <div class="toolbar-group">
-        <button class="btn small" id="lettersVisibleBtn">Hide letters</button>
-        <span class="hint">Background:</span>
-        <div class="bg-swatches" id="bgSwatches"></div>
-      </div>
-
-      <div class="toolbar-group">
-        <button class="btn small" id="exportPngBtn">Export PNG</button>
-        <button class="btn small" id="exportJsonBtn">Save JSON</button>
-        <button class="btn small" id="importJsonBtn">Load JSON</button>
-        <input type="file" id="importFileInput" accept="application/json" hidden>
-      </div>
-
-      <div class="toolbar-group">
-        <button class="btn small" id="clearInkBtn">Clear colours &amp; text</button>
-        <button class="btn danger small" id="freshBtn">Start fresh</button>
-      </div>
+      <div class="stats" id="statsLine">—</div>
+      <button class="btn danger small" id="freshBtn">Reset board</button>
     </div>
   </header>
 
   <div class="workspace">
     <aside class="controls" id="modePanel">
-      <section class="panel">
-        <h2 id="modePanelTitle">Write</h2>
-        <p class="hint" id="modeHint"></p>
+      <section class="panel mode-panel">
+        <div class="panel-head">
+          <h2>Mode</h2>
+          <button class="btn icon mini" id="modeHelpBtn" aria-label="Describe this mode" aria-pressed="false" title="What does this mode do?">?</button>
+        </div>
+        <div class="mode-list" id="modeSeg">
+          <button data-mode="shape">Shape</button>
+          <button data-mode="shade">Shade</button>
+          <button data-mode="text" class="active">Write</button>
+          <button data-mode="find">Find</button>
+          <button data-mode="number">Number</button>
+          <button data-mode="background">Background</button>
+        </div>
+        <p class="hint" id="modeHint" hidden></p>
       </section>
 
       <section class="panel" id="palettePanel" hidden>
         <h2>Ink</h2>
         <div class="swatches" id="swatches"></div>
         <p class="hint">Click or drag to paint cell backgrounds.</p>
+        <button class="btn small" id="clearShadingBtn" style="width:100%;">Clear shading</button>
       </section>
 
       <section class="panel" id="letterColorPanel" hidden>
         <h2>Letter colour</h2>
         <div class="swatches" id="textSwatches"></div>
         <p class="hint">Click a cell to colour its letter.</p>
+        <div class="row">
+          <button class="btn small" id="lettersVisibleBtn" style="flex:1;">Hide letters</button>
+          <button class="btn small" id="clearTextBtn" style="flex:1;">Clear text</button>
+        </div>
+      </section>
+
+      <section class="panel" id="backgroundPanel" hidden>
+        <h2>Canvas background</h2>
+        <div class="swatches" id="bgSwatches"></div>
+        <p class="hint">Changes the backdrop behind the grid. It isn't saved with the puzzle.</p>
       </section>
 
       <section class="panel" id="symmetryPanel" hidden>
@@ -460,6 +472,11 @@
           <option value="custom">Custom</option>
         </select>
         <button class="btn small" id="numberingVisibleBtn" style="width:100%;">Show numbers</button>
+        <label class="row" for="numberSizeRange">
+          <span class="hint">Number size</span>
+          <input type="range" id="numberSizeRange" min="0.2" max="0.56" step="0.02" value="0.36" style="flex:1; min-width:0;">
+          <span class="hint" id="numberSizeLabel" style="min-width:3em; text-align:right; font-variant-numeric:tabular-nums;">120%</span>
+        </label>
         <p class="hint" id="numberingHint"></p>
       </section>
 
@@ -512,8 +529,10 @@
       <li><strong>Shade</strong> — click or drag to paint cells with the selected ink; set a shading symmetry so painted cells mirror automatically.</li>
       <li><strong>Write</strong> — click a cell, then type its letters.</li>
       <li><strong>Find</strong> — drag through a chain of neighbouring cells (straight or curved) to search the dictionary for matching words and phrases.</li>
-      <li><strong>Number</strong> — auto-number entries (down- or right-dominant), or click cells to number them yourself in Custom mode.</li>
+      <li><strong>Number</strong> — auto-number entries (down- or right-dominant), or click cells to number them yourself in Custom mode. Adjust the number size here too.</li>
+      <li><strong>Background</strong> — choose the backdrop behind the grid.</li>
     </ul>
+    <p>Pick a mode at the top of the side column. Press the <strong>?</strong> beside it to show a short description of the current mode.</p>
 
     <h3>Moving around</h3>
     <ul>
@@ -531,7 +550,8 @@
 
     <h3>Tips</h3>
     <ul>
-      <li>The left-hand panel only shows the settings for whichever mode you're using — hide it with the toolbar button for more room.</li>
+      <li>The side column only shows the settings for whichever mode you're using. Clear text and Hide letters are in Write; Clear shading is in Shade.</li>
+      <li>Reset board clears everything and starts a fresh grid at the size in the toolbar.</li>
       <li>Save your grid to a JSON file so you can pick up editing later or move it between devices.</li>
     </ul>
   </div>
@@ -567,15 +587,18 @@
     shade: "Click or drag across cells to paint them with the selected ink. Choose Blank to erase back to plain paper.",
     text: "Click a cell, then type. Enter moves to the next cell, arrow keys step to a neighbour, Esc deselects.",
     find: "Drag through a chain of neighbouring cells — straight or curved — to search the dictionary. Drag back over the previous cell to undo a step.",
-    number: "Custom numbering: click a cell to toggle whether a word starts there. Down/Right-dominant update automatically as you edit the grid."
+    number: "Custom numbering: click a cell to toggle whether a word starts there. Down/Right-dominant update automatically as you edit the grid.",
+    background: "Pick a backdrop for the canvas behind the grid. You can still drag empty space to pan."
   };
+
+  var DEFAULT_NUMBER_SCALE = 0.36;
 
   var state = {
     radius: 5,
     hexR: 30,
     cells: {},
     symmetry: { type: "none", center: { q0: 0, r0: 0 } },
-    numbering: { type: "down", visible: false, customStarts: new Set() },
+    numbering: { type: "down", visible: false, customStarts: new Set(), fontScale: DEFAULT_NUMBER_SCALE },
     lettersVisible: true
   };
 
@@ -629,6 +652,8 @@
   var numberingSelect = document.getElementById("numberingSelect");
   var numberingVisibleBtn = document.getElementById("numberingVisibleBtn");
   var numberingHint = document.getElementById("numberingHint");
+  var numberSizeRange = document.getElementById("numberSizeRange");
+  var numberSizeLabel = document.getElementById("numberSizeLabel");
   var lettersVisibleBtn = document.getElementById("lettersVisibleBtn");
   var undoBtn = document.getElementById("undoBtn");
   var redoBtn = document.getElementById("redoBtn");
@@ -885,7 +910,7 @@
         num.setAttribute("class", "cell-number");
         num.setAttribute("x", (g.cx + offX - hexR * 0.34).toFixed(1));
         num.setAttribute("y", (g.cy + offY - hexR * 0.72).toFixed(1));
-        num.setAttribute("font-size", (hexR * 0.30).toFixed(1));
+        num.setAttribute("font-size", (hexR * state.numbering.fontScale).toFixed(1));
         num.style.fill = cell.color === "#23231f" ? "#f2efe7" : "";
         num.textContent = numberingMap.get(k);
         group.appendChild(num);
@@ -975,7 +1000,8 @@
     svg.setAttribute("class", "grid mode-" + mode + (pickingCenter ? " picking-center" : "") + (state.lettersVisible ? "" : " hide-letters"));
   }
 
-  var MODE_LABELS = { shape: "Shape", shade: "Shade", text: "Write", find: "Find", number: "Number" };
+  var MODE_ORDER = ["shape", "shade", "text", "find", "number", "background"];
+  var showModeHelp = false;
 
   function setMode(next) {
     mode = next;
@@ -983,13 +1009,14 @@
       b.classList.toggle("active", b.dataset.mode === next);
     });
     updateSvgClass();
-    document.getElementById("modePanelTitle").textContent = MODE_LABELS[next] || next;
     document.getElementById("palettePanel").hidden = next !== "shade";
     document.getElementById("letterColorPanel").hidden = next !== "text";
     document.getElementById("symmetryPanel").hidden = next !== "shade" && next !== "shape";
     document.getElementById("numberingPanel").hidden = next !== "number";
     document.getElementById("findModePanel").hidden = next !== "find";
+    document.getElementById("backgroundPanel").hidden = next !== "background";
     modeHint.textContent = MODE_HINTS[next];
+    modeHint.hidden = !showModeHelp;
     if (next !== "text") deselectCell();
     if (next !== "find") clearFindLine();
     updateFindUI();
@@ -1539,7 +1566,8 @@
       numbering: {
         type: state.numbering.type,
         visible: state.numbering.visible,
-        customStarts: Array.from(state.numbering.customStarts)
+        customStarts: Array.from(state.numbering.customStarts),
+        fontScale: state.numbering.fontScale
       },
       lettersVisible: state.lettersVisible
     };
@@ -1552,7 +1580,8 @@
     state.numbering = {
       type: snap.numbering.type,
       visible: snap.numbering.visible,
-      customStarts: new Set(snap.numbering.customStarts)
+      customStarts: new Set(snap.numbering.customStarts),
+      fontScale: snap.numbering.fontScale
     };
     state.lettersVisible = snap.lettersVisible;
   }
@@ -1740,6 +1769,8 @@
     numberingSelect.value = state.numbering.type;
     numberingVisibleBtn.textContent = state.numbering.visible ? "Hide numbers" : "Show numbers";
     numberingVisibleBtn.classList.toggle("primary", state.numbering.visible);
+    numberSizeRange.value = state.numbering.fontScale;
+    numberSizeLabel.textContent = Math.round((state.numbering.fontScale / 0.30) * 100) + "%";
     numberingHint.textContent = state.numbering.type === "custom"
       ? "Switch to Number mode and click cells to toggle where a word starts."
       : "Numbers follow the grid automatically as you edit its shape and shading.";
@@ -1762,6 +1793,16 @@
     render();
   });
 
+  // One undo entry per slider drag, not one per tick.
+  var numSizeUndoPushed = false;
+  numberSizeRange.addEventListener("input", function () {
+    if (!numSizeUndoPushed) { pushUndo(); numSizeUndoPushed = true; }
+    state.numbering.fontScale = parseFloat(numberSizeRange.value) || DEFAULT_NUMBER_SCALE;
+    updateNumberingUI();
+    if (state.numbering.visible) render();
+  });
+  numberSizeRange.addEventListener("change", function () { numSizeUndoPushed = false; });
+
   function updateLettersUI() {
     lettersVisibleBtn.textContent = state.lettersVisible ? "Hide letters" : "Show letters";
     lettersVisibleBtn.classList.toggle("primary", !state.lettersVisible);
@@ -1773,15 +1814,14 @@
     updateSvgClass();
   });
 
-  // ---------- Left panel collapse ----------
-  var modePanel = document.getElementById("modePanel");
-  var togglePanelBtn = document.getElementById("togglePanelBtn");
-  var leftPanelHidden = false;
-
-  togglePanelBtn.addEventListener("click", function () {
-    leftPanelHidden = !leftPanelHidden;
-    modePanel.hidden = leftPanelHidden;
-    togglePanelBtn.textContent = leftPanelHidden ? "Show panel" : "Hide panel";
+  // ---------- Mode description toggle ----------
+  // Stays on across mode switches until toggled off again.
+  var modeHelpBtn = document.getElementById("modeHelpBtn");
+  modeHelpBtn.addEventListener("click", function () {
+    showModeHelp = !showModeHelp;
+    modeHint.hidden = !showModeHelp;
+    modeHelpBtn.classList.toggle("primary", showModeHelp);
+    modeHelpBtn.setAttribute("aria-pressed", String(showModeHelp));
   });
 
   // ---------- Help modal ----------
@@ -1855,7 +1895,7 @@
       var tag = document.activeElement && document.activeElement.tagName;
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || tag === "BUTTON") return;
       e.preventDefault();
-      var order = ["shape", "shade", "text", "find", "number"];
+      var order = MODE_ORDER;
       var idx = order.indexOf(mode);
       var next = e.shiftKey ? (idx - 1 + order.length) % order.length : (idx + 1) % order.length;
       setMode(order[next]);
@@ -1935,17 +1975,22 @@
     render();
   });
 
-  document.getElementById("clearInkBtn").addEventListener("click", function () {
-    if (!window.confirm("Clear all colours and letters? The grid outline stays as-is.")) return;
+  function clearAllCells(message, clearFn) {
+    if (!window.confirm(message)) return;
     pushUndo();
-    Object.keys(state.cells).forEach(function (k) {
-      state.cells[k].color = null;
-      state.cells[k].text = "";
-    });
+    Object.keys(state.cells).forEach(function (k) { clearFn(state.cells[k]); });
     deselectCell();
     clearFindLine();
     updateFindUI();
     render();
+  }
+
+  document.getElementById("clearTextBtn").addEventListener("click", function () {
+    clearAllCells("Clear all letters? Shading and the grid outline stay as-is.", function (cell) { cell.text = ""; });
+  });
+
+  document.getElementById("clearShadingBtn").addEventListener("click", function () {
+    clearAllCells("Clear all shading? Letters and the grid outline stay as-is.", function (cell) { cell.color = null; });
   });
 
   var zoomSteps = [16, 20, 24, 30, 36, 44, 54, 66];
@@ -1964,7 +2009,7 @@
   document.getElementById("zoomOut").addEventListener("click", function () { setZoom(zoomIndex() - 1); });
 
   document.getElementById("exportJsonBtn").addEventListener("click", async function () {
-    var numberingOut = { type: state.numbering.type, visible: state.numbering.visible, customStarts: Array.from(state.numbering.customStarts) };
+    var numberingOut = { type: state.numbering.type, visible: state.numbering.visible, customStarts: Array.from(state.numbering.customStarts), fontScale: state.numbering.fontScale };
     var payload = JSON.stringify({ radius: state.radius, cells: state.cells, symmetry: state.symmetry, numbering: numberingOut, lettersVisible: state.lettersVisible }, null, 0);
     var ok = await saveFile("hexword-grid.json", payload, "application/json");
     if (!ok) window.alert("Couldn't save the file here. Copy this instead:\n\n" + payload.slice(0, 4000));
@@ -1986,7 +2031,12 @@
         state.cells = data.cells;
         state.symmetry = data.symmetry || { type: "none", center: { q0: 0, r0: 0 } };
         var numberingIn = data.numbering || { type: "down", visible: false, customStarts: [] };
-        state.numbering = { type: numberingIn.type, visible: numberingIn.visible, customStarts: new Set(numberingIn.customStarts || []) };
+        state.numbering = {
+          type: numberingIn.type,
+          visible: numberingIn.visible,
+          customStarts: new Set(numberingIn.customStarts || []),
+          fontScale: typeof numberingIn.fontScale === "number" ? numberingIn.fontScale : DEFAULT_NUMBER_SCALE
+        };
         state.lettersVisible = data.lettersVisible !== false;
         radiusInput.value = data.radius;
         document.getElementById("symmetrySelect").value = state.symmetry.type;
@@ -2030,7 +2080,9 @@
     var width = (maxX - minX) + pad * 2;
     var height = (maxY - minY) + pad * 2;
     var offX = -minX + pad, offY = -minY + pad;
-    var scale = 2;
+    // Export at ~120px per hex radius whatever the on-screen zoom, capped so the
+    // canvas stays under ~16M pixels (Safari/iOS refuse larger canvases).
+    var scale = Math.max(2, Math.min(120 / hexR, Math.sqrt(16e6 / (width * height))));
     var canvas = document.createElement("canvas");
     canvas.width = width * scale;
     canvas.height = height * scale;
@@ -2062,7 +2114,7 @@
         ctx.fillText(cell.text, g.cx + offX, g.cy + offY + fs * 0.03);
       }
       if (numberingMap && numberingMap.has(k)) {
-        ctx.font = "700 " + (hexR * 0.30).toFixed(1) + "px 'IBM Plex Mono', monospace";
+        ctx.font = "700 " + (hexR * state.numbering.fontScale).toFixed(1) + "px 'IBM Plex Mono', monospace";
         ctx.fillStyle = cell.color === "#23231f" ? "#f2efe7" : "#1f2420";
         ctx.textAlign = "left";
         ctx.textBaseline = "top";
